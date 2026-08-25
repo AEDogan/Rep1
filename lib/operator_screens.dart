@@ -245,10 +245,17 @@ class StockManagerView extends StatelessWidget {
         final product = products[index];
         return Card(
           child: SwitchListTile(
-            title: Text(product.name, style: TextStyle(fontWeight: FontWeight.bold, decoration: product.isInfiniteStock ? null : TextDecoration.lineThrough, color: product.isInfiniteStock ? Colors.black : Colors.grey)),
-            subtitle: Text(product.isInfiniteStock ? "Satışta" : "KAPALI (Müşteride Görünmez)"),
-            value: product.isInfiniteStock,
-            activeColor: Colors.green,
+            title: Text(
+              product.name,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                decoration: product.isAvailable ? null : TextDecoration.lineThrough,
+                color: product.isAvailable ? Colors.black : Colors.grey,
+              ),
+            ),
+            subtitle: Text(product.isAvailable ? "Satışta" : "KAPALI (Tükendi)"),
+            value: product.isAvailable,
+            activeThumbColor: Colors.green,
             inactiveThumbColor: Colors.red,
             secondary: ClipRRect(
               borderRadius: BorderRadius.circular(8),

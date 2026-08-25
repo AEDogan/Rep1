@@ -283,7 +283,7 @@ class _ProductEditorScreenState extends State<ProductEditorScreen> {
               onSaved: (val) => _basePrice = double.tryParse(val!) ?? 0,
             ),
             DropdownButtonFormField<String>(
-              value: _category,
+              initialValue: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: const [
                 DropdownMenuItem(value: 'drink', child: Text('İçecek')),

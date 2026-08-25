@@ -1,28 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:compound_coffee/main.dart';
+import 'package:provider/provider.dart';
+import 'package:compound_coffee/providers.dart';
+import 'package:compound_coffee/services/auth_service.dart';
+import 'package:compound_coffee/login_screen.dart';
 
 void main() {
-  testWidgets('App launch and role selection smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('App launch and login flow smoke test', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider(create: (_) => AuthService()),
+        ],
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
     await tester.pump();
 
-    // Verify Welcome screen and role buttons are present
-    expect(find.text('HOŞ GELDİNİZ'), findsOneWidget);
-    expect(find.text('MÜŞTERİ GİRİŞİ'), findsOneWidget);
-    expect(find.text('İŞLETMECİ / MUTFAK'), findsOneWidget);
-    expect(find.text('YÖNETİCİ PANELİ'), findsOneWidget);
+    // Verify brand header
+    expect(find.text('COMPOUND COFFEE'), findsOneWidget);
+    expect(find.text('Şirketinize Özel Hızlı Kahve Deneyimi'), findsOneWidget);
 
-    // Tap on Müşteri Girişi
-    await tester.tap(find.text('MÜŞTERİ GİRİŞİ'));
+    // Verify Google and tabs
+    expect(find.text('Google ile Giriş Yap'), findsOneWidget);
+    expect(find.text('Giriş Yap'), findsWidgets);
+    expect(find.text('Yeni Kayıt'), findsOneWidget);
+
+    // Tap on Yeni Kayıt tab
+    await tester.tap(find.text('Yeni Kayıt'));
     await tester.pumpAndSettle();
 
-    // Verify Customer login form is displayed
-    expect(find.text('Müşteri Girişi'), findsOneWidget);
-    expect(find.text('Numaranla Başla'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Kod Gönder'), findsOneWidget);
+    // Verify Registration form is displayed
+    expect(find.text('Ad Soyad'), findsOneWidget);
+    expect(find.text('Hesap Oluştur'), findsOneWidget);
   });
 }
-

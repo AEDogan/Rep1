@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 import 'mock_service.dart';
 import 'socket_service.dart';
+import 'services/database_service.dart';
+import 'services/auth_service.dart';
 
 enum GroupRole { leader, friend }
 enum MemberStatus { choosing, ready }
@@ -37,14 +39,14 @@ class AppProvider with ChangeNotifier {
   
   // Sosyal ve Teslimat Durumları
   late DeliveryLocation _selectedLocation;
-  final List<DeliveryLocation> _locations = [
-    DeliveryLocation(name: "Ofisim", icon: "🏢"),
+  List<DeliveryLocation> _locations = [
+    DeliveryLocation(name: "Masam / Ofisim", icon: "🏢"),
     DeliveryLocation(name: "Proje Laboratuvarı", icon: "🧪"),
     DeliveryLocation(name: "A1 Toplantı Odası", icon: "🤝", isRoom: true),
-    DeliveryLocation(name: "B3 Toplantı Odası", icon: "🤝", isRoom: true),
+    DeliveryLocation(name: "B3 Yönetim Odası", icon: "🤝", isRoom: true),
   ];
   
-  int _loyaltyStamps = 6; // Örnek başlangıç değeri
+  int _loyaltyStamps = 6;
   int _freeProducts = 0;
   
   OrderStatus? _activeOrderStatus;
@@ -63,20 +65,20 @@ class AppProvider with ChangeNotifier {
   
   final List<GroupMember> _groupMembers = [];
 
-  // Socket Service
+  // Services
   final SocketService _socketService = SocketService();
+  final DatabaseService _databaseService = DatabaseService();
   final List<Order> _incomingOrders = []; // KDS için aktif siparişler listesi
 
   AppProvider() {
     _selectedLocation = _locations[0];
-    _loadProducts();
+    _loadInitialData();
     _initSocketListeners();
   }
 
   void _initSocketListeners() {
     // Mutfak Paneli: Yeni sipariş dinle
     _socketService.onNewOrder.listen((data) {
-      // Gelen datayı Order objesine çevir
       final items = (data['items'] as List).cast<CartItem>();
       
       final newOrder = Order(
@@ -84,35 +86,36 @@ class AppProvider with ChangeNotifier {
         customerName: data['customerName'] ?? 'Misafir',
         locationName: data['locationName'] ?? 'Bilinmiyor',
         items: items,
-        totalPrice: data['totalPrice'] ?? 0.0,
+        totalPrice: (data['totalPrice'] as num?)?.toDouble() ?? 0.0,
         paymentMethod: data['paymentMethod'] ?? 'Nakit',
         timestamp: DateTime.now(),
         status: OrderStatus.received,
       );
 
-      _incomingOrders.insert(0, newOrder); // En yeniyi başa ekle
+      _incomingOrders.insert(0, newOrder);
       notifyListeners();
     });
 
     // Müşteri Paneli: Ürün stok durumu dinle
     _socketService.onProductUpdate.listen((data) {
       final productId = data['id'];
-      final isAvailable = data['isAvailable'];
+      final isAvailable = data['isAvailable'] as bool? ?? true;
       
       final index = _products.indexWhere((p) => p.id == productId);
       if (index != -1) {
-        // Stok durumunu güncelle (isInfiniteStock false yapıp stock 0 veya 999)
         final p = _products[index];
         _products[index] = Product(
           id: p.id,
+          companyId: p.companyId,
           name: p.name,
           description: p.description,
           basePrice: p.basePrice,
           imageUrl: p.imageUrl,
           category: p.category,
           modifierGroups: p.modifierGroups,
-          isInfiniteStock: isAvailable, // True ise açık, False ise kapalı (basit mantık)
-          stockQuantity: isAvailable ? 100 : 0, 
+          isInfiniteStock: p.isInfiniteStock,
+          stockQuantity: isAvailable ? (p.stockQuantity > 0 ? p.stockQuantity : 100) : 0,
+          isAvailable: isAvailable,
         );
         notifyListeners();
       }
@@ -121,11 +124,55 @@ class AppProvider with ChangeNotifier {
 
   List<Order> get incomingOrders => _incomingOrders;
 
-  Future<void> _loadProducts() async {
+  Future<void> _loadInitialData() async {
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(seconds: 1));
-    _products = MockDataService.getProducts();
+
+    final companyId = AuthService().currentUser?.companyId ??
+        AuthService().currentCompany?.id ??
+        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'; // Varsayılan örnek firma Maslak Hub
+
+    await loadCompanyData(companyId);
+  }
+
+  /// Şirketin ürünlerini ve teslimat noktalarını Supabase'den çeker
+  Future<void> loadCompanyData(String companyId) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // 1. Canlı veritabanından ürünleri çek
+      final fetchedProducts = await _databaseService.fetchProducts(companyId);
+      if (fetchedProducts.isNotEmpty) {
+        _products = fetchedProducts;
+      } else {
+        // Canlıda ürün yoksa veya offline moddaysa mock ürünleri kullan
+        _products = MockDataService.getProducts();
+      }
+
+      // 2. Teslimat noktalarını çek
+      final fetchedLocations = await _databaseService.fetchDeliveryLocations(companyId);
+      if (fetchedLocations.isNotEmpty) {
+        _locations = fetchedLocations;
+        _selectedLocation = _locations.first;
+      }
+
+      // 3. Realtime dinleyici başlat (Stok / Ürün değişiklikleri anında yansısın)
+      _databaseService.subscribeToProducts(
+        companyId: companyId,
+        onUpdate: () async {
+          final updated = await _databaseService.fetchProducts(companyId);
+          if (updated.isNotEmpty) {
+            _products = updated;
+            notifyListeners();
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint("loadCompanyData hatası: $e");
+      _products = MockDataService.getProducts();
+    }
+
     _isLoading = false;
     notifyListeners();
   }
@@ -180,7 +227,7 @@ class AppProvider with ChangeNotifier {
   }
 
   void addToCart(Product product, List<ProductModifier> modifiers, int quantity, {String? giftNote}) {
-    if (!product.isInfiniteStock && product.stockQuantity < quantity) return;
+    if (product.isOutOfStock) return;
     
     _cart.add(CartItem(
       id: DateTime.now().toString(),
@@ -196,21 +243,18 @@ class AppProvider with ChangeNotifier {
   void checkout() {
     if (_cart.isEmpty) return;
     
-    // Sipariş tamamlandığında:
     _lastOrderedProduct = _cart.first.product;
     final orderItems = List<CartItem>.from(_cart);
     final orderTotal = totalAmount;
     
-    // Loyalty güncelleme
     _loyaltyStamps++;
     if (_loyaltyStamps >= 10) {
       _loyaltyStamps = 0;
       _freeProducts++;
     }
     
-    // Socket'e bildir
     _socketService.emit('new_order', {
-      'orderId': DateTime.now().millisecondsSinceEpoch.toString().substring(8), // Kısa ID
+      'orderId': DateTime.now().millisecondsSinceEpoch.toString().substring(8),
       'items': orderItems,
       'status': 'received',
       'paymentMethod': _selectedPaymentMethod == PaymentMethod.googlePay ? "Google Pay" : "Kapıda Ödeme",
@@ -220,8 +264,6 @@ class AppProvider with ChangeNotifier {
     });
 
     _cart.clear();
-
-    // Takip başlat
     _startOrderTracking();
     notifyListeners();
   }
@@ -254,8 +296,11 @@ class AppProvider with ChangeNotifier {
   }
 
   // --- User Profile & Payment ---
-  void updateUserProfile({required String name, required String email, String? photoUrl}) {
-    _currentUser = UserProfile(name: name, email: email, photoUrl: photoUrl);
+  void updateUserProfile({required String name, required String email, String? photoUrl, String? companyId}) {
+    _currentUser = UserProfile(name: name, email: email, photoUrl: photoUrl, companyId: companyId);
+    if (companyId != null) {
+      loadCompanyData(companyId);
+    }
     notifyListeners();
   }
 
@@ -265,7 +310,6 @@ class AppProvider with ChangeNotifier {
   }
 
   // --- GRUP SİPARİŞİ MANTIĞI ---
-
   void startGroupOrder() {
     _isGroupOrderActive = true;
     _isPaying = false;
@@ -334,18 +378,26 @@ class AppProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- ÜRÜN YÖNETİMİ (ADMİN) ---
-  void addProduct(Product product) {
+  // --- ÜRÜN YÖNETİMİ (ADMİN & KDS) ---
+  Future<void> addProduct(Product product, {String? companyId}) async {
     _products.add(product);
     notifyListeners();
+
+    final targetCompanyId = companyId ??
+        _currentUser?.companyId ??
+        AuthService().currentCompany?.id ??
+        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+
+    await _databaseService.addProduct(product, targetCompanyId);
   }
 
-  void updateProduct(Product updatedProduct) {
+  Future<void> updateProduct(Product updatedProduct) async {
     final index = _products.indexWhere((p) => p.id == updatedProduct.id);
     if (index != -1) {
       _products[index] = updatedProduct;
       notifyListeners();
     }
+    await _databaseService.updateProduct(updatedProduct);
   }
   
   // KDS: Sipariş Statü Güncelleme (Manuel)
@@ -353,34 +405,55 @@ class AppProvider with ChangeNotifier {
     final index = _incomingOrders.indexWhere((o) => o.id == orderId);
     if (index != -1) {
       _incomingOrders[index].status = newStatus;
-      
-      // Eğer 'delivered' ise listeden kaldırılabilir veya 'Tamamlananlar' listesine alınabilir.
-      // Şimdilik listede tutalım ama rengi değişsin. veya en sona atalım.
-      
       notifyListeners();
-      
-      // Müşteriye bildirim gönderme (Socket emit)
-      // _socketService.emit('status_update', { 'orderId': orderId, 'status': newStatus.toString() });
     }
   }
 
-  // KDS: Ürün Aç/Kapa
-  void toggleProductAvailability(String productId, bool isAvailable) {
+  // KDS / Mutfak: Ürün Aç/Kapa (Canlı Stok)
+  Future<void> toggleProductAvailability(String productId, bool isAvailable) async {
+    final index = _products.indexWhere((p) => p.id == productId);
+    if (index != -1) {
+      final p = _products[index];
+      _products[index] = Product(
+        id: p.id,
+        companyId: p.companyId,
+        name: p.name,
+        description: p.description,
+        basePrice: p.basePrice,
+        imageUrl: p.imageUrl,
+        category: p.category,
+        modifierGroups: p.modifierGroups,
+        isInfiniteStock: p.isInfiniteStock,
+        stockQuantity: isAvailable ? 100 : 0,
+        isAvailable: isAvailable,
+      );
+      notifyListeners();
+    }
+
     _socketService.emit('toggle_product', {
       'id': productId,
       'isAvailable': isAvailable,
     });
-    // Kendi local state'imizi de güncelleyelim (Socket dinleyicisi de yapacak ama olsun)
+
+    await _databaseService.toggleProductAvailability(productId, isAvailable);
   }
 
-  void deleteProduct(String productId) {
+  Future<void> deleteProduct(String productId) async {
     _products.removeWhere((p) => p.id == productId);
     notifyListeners();
+    await _databaseService.deleteProduct(productId);
   }
 
   bool isModifierConflict(Product product, List<ProductModifier> selectedModifiers, ModifierGroup currentGroup) {
     bool hasNoMilkModifier = selectedModifiers.any((m) => m.name.contains('Sade') || m.name.contains('Siyah'));
     if (currentGroup.name.contains('Süt') && hasNoMilkModifier) return true;
     return false;
+  }
+
+  @override
+  void dispose() {
+    _databaseService.dispose();
+    _socketService.dispose();
+    super.dispose();
   }
 }

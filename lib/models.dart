@@ -125,37 +125,77 @@ class UserProfile {
 }
 
 class DeliveryLocation {
+  final String? id;
+  final String? companyId;
   final String name;
   final String icon;
   final bool isRoom;
+  final bool isActive;
 
-  DeliveryLocation({required this.name, required this.icon, this.isRoom = false});
-}
-
-class Product {
-  final String id;
-  final String name;
-  final String description;
-  final double basePrice;
-  final String imageUrl;
-  final String category; // 'drink' or 'snack'
-  final bool isInfiniteStock;
-  final int stockQuantity;
-  final List<ModifierGroup> modifierGroups;
-
-  Product({
-    required this.id,
+  DeliveryLocation({
+    this.id,
+    this.companyId,
     required this.name,
-    required this.description,
-    required this.basePrice,
-    required this.imageUrl,
-    required this.category,
-    this.isInfiniteStock = true,
-    this.stockQuantity = 0,
-    this.modifierGroups = const [],
+    required this.icon,
+    this.isRoom = false,
+    this.isActive = true,
   });
 
-  bool get isOutOfStock => !isInfiniteStock && stockQuantity <= 0;
+  factory DeliveryLocation.fromJson(Map<String, dynamic> json) {
+    return DeliveryLocation(
+      id: json['id'] as String?,
+      companyId: json['company_id'] as String?,
+      name: json['name'] as String? ?? 'Nokta',
+      icon: json['icon'] as String? ?? '🏢',
+      isRoom: json['is_room'] as bool? ?? false,
+      isActive: json['is_active'] as bool? ?? true,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (id != null) 'id': id,
+      if (companyId != null) 'company_id': companyId,
+      'name': name,
+      'icon': icon,
+      'is_room': isRoom,
+      'is_active': isActive,
+    };
+  }
+}
+
+class ProductModifier {
+  final String id;
+  final String name;
+  final double price; // 0 ise Ücretsiz
+  final bool isAvailable;
+
+  ProductModifier({
+    required this.id,
+    required this.name,
+    required this.price,
+    this.isAvailable = true,
+  });
+
+  String get priceLabel => price <= 0 ? "Ücretsiz" : "+${price.toStringAsFixed(0)} TL";
+
+  factory ProductModifier.fromJson(Map<String, dynamic> json) {
+    return ProductModifier(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      isAvailable: json['is_available'] as bool? ?? true,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'price': price,
+      'is_available': isAvailable,
+    };
+  }
 }
 
 class ModifierGroup {
@@ -175,16 +215,97 @@ class ModifierGroup {
     this.isMultiSelect = false,
     this.dependentOnVariantId,
   });
+
+  factory ModifierGroup.fromJson(Map<String, dynamic> json) {
+    final rawOptions = json['product_modifiers'] as List<dynamic>? ??
+        json['options'] as List<dynamic>? ??
+        [];
+    return ModifierGroup(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      isRequired: json['is_required'] as bool? ?? false,
+      isMultiSelect: json['is_multi_select'] as bool? ?? false,
+      dependentOnVariantId: json['dependent_on_variant_id'] as String?,
+      options: rawOptions
+          .map((o) => ProductModifier.fromJson(o as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'is_required': isRequired,
+      'is_multi_select': isMultiSelect,
+      'dependent_on_variant_id': dependentOnVariantId,
+      'options': options.map((o) => o.toJson()).toList(),
+    };
+  }
 }
 
-class ProductModifier {
+class Product {
   final String id;
+  final String? companyId;
   final String name;
-  final double price; // 0 ise Ücretsiz
+  final String description;
+  final double basePrice;
+  final String imageUrl;
+  final String category; // 'drink' or 'snack'
+  final bool isInfiniteStock;
+  final int stockQuantity;
+  final bool isAvailable;
+  final List<ModifierGroup> modifierGroups;
 
-  ProductModifier({required this.id, required this.name, required this.price});
+  Product({
+    required this.id,
+    this.companyId,
+    required this.name,
+    required this.description,
+    required this.basePrice,
+    required this.imageUrl,
+    required this.category,
+    this.isInfiniteStock = true,
+    this.stockQuantity = 0,
+    this.isAvailable = true,
+    this.modifierGroups = const [],
+  });
 
-  String get priceLabel => price <= 0 ? "Ücretsiz" : "+${price.toStringAsFixed(0)} TL";
+  bool get isOutOfStock => !isAvailable || (!isInfiniteStock && stockQuantity <= 0);
+
+  factory Product.fromJson(Map<String, dynamic> json) {
+    final rawGroups = json['modifier_groups'] as List<dynamic>? ?? [];
+    return Product(
+      id: json['id'] as String? ?? '',
+      companyId: json['company_id'] as String?,
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      basePrice: (json['base_price'] as num?)?.toDouble() ?? 0.0,
+      imageUrl: json['image_url'] as String? ?? '',
+      category: json['category'] as String? ?? 'drink',
+      isInfiniteStock: json['is_infinite_stock'] as bool? ?? true,
+      stockQuantity: (json['stock_quantity'] as num?)?.toInt() ?? 0,
+      isAvailable: json['is_available'] as bool? ?? true,
+      modifierGroups: rawGroups
+          .map((g) => ModifierGroup.fromJson(g as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      if (companyId != null) 'company_id': companyId,
+      'name': name,
+      'description': description,
+      'base_price': basePrice,
+      'image_url': imageUrl,
+      'category': category,
+      'is_infinite_stock': isInfiniteStock,
+      'stock_quantity': stockQuantity,
+      'is_available': isAvailable,
+    };
+  }
 }
 
 class CartItem {
