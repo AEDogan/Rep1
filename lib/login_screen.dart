@@ -420,10 +420,240 @@ class _LoginScreenState extends State<LoginScreen> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminLoginScreen()));
                 },
               ),
+              const SizedBox(height: 12),
+
+              // Yeni İşletme / Şube Kaydı Butonu
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.orange.shade300),
+                ),
+                tileColor: Colors.orange.shade50.withValues(alpha: 0.5),
+                leading: const Icon(Icons.add_business_rounded, color: Colors.orange, size: 30),
+                title: const Text("Yeni İşletme / Şube Kaydı", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.deepOrange)),
+                subtitle: const Text("Yeni kafe / ofis açın ve yönetici olun", style: TextStyle(fontSize: 12)),
+                trailing: const Icon(Icons.chevron_right, color: Colors.deepOrange),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showNewCompanyRegistrationDialog();
+                },
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Yeni İşletme ve Yönetici Kayıt Formu
+  void _showNewCompanyRegistrationDialog() {
+    final compNameCtrl = TextEditingController();
+    final compCodeCtrl = TextEditingController();
+    final adminNameCtrl = TextEditingController();
+    final adminEmailCtrl = TextEditingController();
+    final adminPassCtrl = TextEditingController();
+    final domainsCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(color: Colors.orange.shade50, shape: BoxShape.circle),
+                          child: const Icon(Icons.add_business_rounded, color: Colors.orange, size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("Yeni İşletme Kaydı", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              Text("Şirketinizi ekleyin ve anında yönetici olun", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                        IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // İşletme Bilgileri
+                    TextField(
+                      controller: compNameCtrl,
+                      decoration: InputDecoration(
+                        labelText: "İşletme / Şirket Adı *",
+                        hintText: "Örn: Kolektif House Maslak",
+                        prefixIcon: const Icon(Icons.business_rounded),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: compCodeCtrl,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: InputDecoration(
+                        labelText: "Firma Kodu * (Müşteri Giriş Kodu)",
+                        hintText: "Örn: KLK-34",
+                        prefixIcon: const Icon(Icons.qr_code_rounded),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: domainsCtrl,
+                      decoration: InputDecoration(
+                        labelText: "Şirket E-posta Uzantısı (İsteğe bağlı)",
+                        hintText: "Örn: @kolektif.com",
+                        prefixIcon: const Icon(Icons.alternate_email_rounded),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const Divider(height: 28),
+
+                    const Text("Yönetici (Admin) Hesabı", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: adminNameCtrl,
+                      decoration: InputDecoration(
+                        labelText: "Yetkili Ad Soyad *",
+                        hintText: "Örn: Ahmet Yılmaz",
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: adminEmailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: "Yetkili E-posta *",
+                        hintText: "admin@sirket.com",
+                        prefixIcon: const Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: adminPassCtrl,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: "Şifre (En az 6 karakter) *",
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                final compName = compNameCtrl.text.trim();
+                                final compCode = compCodeCtrl.text.trim();
+                                final adminName = adminNameCtrl.text.trim();
+                                final adminEmail = adminEmailCtrl.text.trim();
+                                final adminPass = adminPassCtrl.text.trim();
+                                final rawDomains = domainsCtrl.text.trim();
+
+                                if (compName.isEmpty || compCode.isEmpty || adminName.isEmpty || adminEmail.isEmpty || adminPass.isEmpty) {
+                                  _showError("Lütfen tüm zorunlu (*) alanları doldurun.");
+                                  return;
+                                }
+
+                                if (adminPass.length < 6) {
+                                  _showError("Şifre en az 6 karakter olmalıdır.");
+                                  return;
+                                }
+
+                                final allowedDomains = rawDomains.isNotEmpty
+                                    ? rawDomains.split(',').map((d) => d.trim()).where((d) => d.isNotEmpty).toList()
+                                    : <String>[];
+
+                                setSheetState(() => isSubmitting = true);
+
+                                final success = await AuthService().registerNewCompanyWithAdmin(
+                                  companyName: compName,
+                                  companyCode: compCode,
+                                  adminEmail: adminEmail,
+                                  adminPassword: adminPass,
+                                  adminName: adminName,
+                                  allowedDomains: allowedDomains,
+                                );
+
+                                setSheetState(() => isSubmitting = false);
+
+                                if (ctx.mounted) Navigator.pop(ctx);
+
+                                if (success) {
+                                  final auth = AuthService();
+                                  final companyId = auth.currentCompany?.id ?? auth.currentUser?.companyId;
+                                  if (companyId != null && mounted) {
+                                    Provider.of<AppProvider>(context, listen: false).loadCompanyData(companyId);
+                                  }
+
+                                  _showSuccess("🎉 $compName işletmeniz başarıyla oluşturuldu! Yönetici paneline yönlendiriliyorsunuz...");
+                                  if (mounted) {
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                                    );
+                                  }
+                                } else {
+                                  _showError(AuthService().errorMessage ?? "İşletme kaydı oluşturulamadı.");
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: isSubmitting
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text(
+                                "İŞLETMEYİ OLUŞTUR VE YÖNETİCİ GİRİŞİ YAP",
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

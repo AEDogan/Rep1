@@ -282,6 +282,127 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  /// Yeni Bir İşletme / Şirket Oluştur ve Yönetici Olarak Kaydol (Onboarding)
+  Future<bool> registerNewCompanyWithAdmin({
+    required String companyName,
+    required String companyCode,
+    required String adminEmail,
+    required String adminPassword,
+    required String adminName,
+    List<String> allowedDomains = const [],
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final client = _client;
+      if (client == null) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        final newCompId = 'comp_${DateTime.now().millisecondsSinceEpoch}';
+        _currentCompany = Company(
+          id: newCompId,
+          name: companyName,
+          companyCode: companyCode.toUpperCase().trim(),
+          allowedDomains: allowedDomains,
+        );
+        _currentUser = UserProfile(
+          id: 'admin_${DateTime.now().millisecondsSinceEpoch}',
+          name: adminName,
+          email: adminEmail,
+          companyId: newCompId,
+          companyName: companyName,
+          role: UserRole.admin,
+        );
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+
+      // 1. Şirket kodunun benzersiz olup olmadığını kontrol et
+      final existing = await client
+          .from('companies')
+          .select('id')
+          .eq('company_code', companyCode.toUpperCase().trim())
+          .maybeSingle();
+
+      if (existing != null) {
+        _errorMessage = 'Bu firma kodu ($companyCode) zaten kullanımda. Lütfen başka bir kod seçin.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      // 2. Yeni şirketi oluştur
+      final createdCompanyData = await client
+          .from('companies')
+          .insert({
+            'name': companyName.trim(),
+            'company_code': companyCode.toUpperCase().trim(),
+            'allowed_domains': allowedDomains,
+            'is_active': true,
+          })
+          .select()
+          .single();
+
+      final createdCompany = Company.fromJson(createdCompanyData);
+
+      // 3. Yönetici hesabını oluştur
+      final authResponse = await client.auth.signUp(
+        email: adminEmail.trim(),
+        password: adminPassword.trim(),
+        data: {'full_name': adminName.trim()},
+      );
+
+      final user = authResponse.user;
+      if (user == null) {
+        throw 'Yönetici hesabı oluşturulamadı.';
+      }
+
+      // 4. Profilini admin ve bu şirkete bağlı olarak güncelle
+      await client.from('profiles').update({
+        'company_id': createdCompany.id,
+        'role': 'admin',
+      }).eq('id', user.id);
+
+      // 5. Varsayılan teslimat noktaları ekle
+      await client.from('delivery_locations').insert([
+        {
+          'company_id': createdCompany.id,
+          'name': 'Masam / Açık Ofis',
+          'icon': '🏢',
+          'is_room': false,
+        },
+        {
+          'company_id': createdCompany.id,
+          'name': 'A1 Toplantı Odası',
+          'icon': '🤝',
+          'is_room': true,
+        },
+      ]);
+
+      _currentCompany = createdCompany;
+      _currentUser = UserProfile(
+        id: user.id,
+        name: adminName,
+        email: adminEmail,
+        companyId: createdCompany.id,
+        companyName: createdCompany.name,
+        role: UserRole.admin,
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint("registerNewCompanyWithAdmin hatası: $e");
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Kullanıcıyı Firma Kodu ile bir şirkete bağlar (Örn: 'CMP-34')
   Future<bool> joinCompanyByCode(String code, {String? userId}) async {
     final uid = userId ?? _currentUser?.id ?? _client?.auth.currentUser?.id;
