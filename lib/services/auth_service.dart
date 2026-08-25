@@ -8,24 +8,32 @@ class AuthService with ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
   AuthService._internal() {
-    if (SupabaseConfig.isConfigured) {
-      Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
-        final AuthChangeEvent event = data.event;
-        final Session? session = data.session;
-        if (event == AuthChangeEvent.signedIn && session != null) {
-          await _fetchProfileAndCompany(session.user.id);
-          notifyListeners();
-        } else if (event == AuthChangeEvent.signedOut) {
-          _currentUser = null;
-          _currentCompany = null;
-          notifyListeners();
-        }
-      });
-    }
+    try {
+      if (SupabaseConfig.isConfigured) {
+        Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+          final AuthChangeEvent event = data.event;
+          final Session? session = data.session;
+          if (event == AuthChangeEvent.signedIn && session != null) {
+            await _fetchProfileAndCompany(session.user.id);
+            notifyListeners();
+          } else if (event == AuthChangeEvent.signedOut) {
+            _currentUser = null;
+            _currentCompany = null;
+            notifyListeners();
+          }
+        });
+      }
+    } catch (_) {}
   }
 
-  SupabaseClient? get _client =>
-      SupabaseConfig.isConfigured ? Supabase.instance.client : null;
+  SupabaseClient? get _client {
+    try {
+      if (SupabaseConfig.isConfigured) {
+        return Supabase.instance.client;
+      }
+    } catch (_) {}
+    return null;
+  }
 
   UserProfile? _currentUser;
   Company? _currentCompany;
