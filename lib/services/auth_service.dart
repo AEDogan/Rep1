@@ -1,14 +1,28 @@
 // services/auth_service.dart
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import '../models.dart';
 import 'supabase_config.dart';
 
 class AuthService with ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
-  AuthService._internal();
+  AuthService._internal() {
+    if (SupabaseConfig.isConfigured) {
+      Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+        final AuthChangeEvent event = data.event;
+        final Session? session = data.session;
+        if (event == AuthChangeEvent.signedIn && session != null) {
+          await _fetchProfileAndCompany(session.user.id);
+          notifyListeners();
+        } else if (event == AuthChangeEvent.signedOut) {
+          _currentUser = null;
+          _currentCompany = null;
+          notifyListeners();
+        }
+      });
+    }
+  }
 
   SupabaseClient? get _client =>
       SupabaseConfig.isConfigured ? Supabase.instance.client : null;
@@ -86,48 +100,23 @@ class AuthService with ChangeNotifier {
         return true;
       }
 
-      // Web veya Native platformlara göre Google Sign In
-      if (kIsWeb) {
-        await _client!.auth.signInWithOAuth(OAuthProvider.google);
-        return true;
-      } else {
-        final GoogleSignIn googleSignIn = GoogleSignIn();
-        final googleUser = await googleSignIn.signIn();
-        if (googleUser == null) {
-          _isLoading = false;
-          notifyListeners();
-          return false; // Kullanıcı iptal etti
-        }
+      // Supabase OAuth ile Google Girişi
+      await _client!.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: kIsWeb ? null : 'io.supabase.compoundcoffee://login-callback',
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
 
-        final googleAuth = await googleUser.authentication;
-        final accessToken = googleAuth.accessToken;
-        final idToken = googleAuth.idToken;
-
-        if (idToken == null) {
-          throw 'Google kimlik doğrulama tokenı alınamadı.';
-        }
-
-        final response = await _client!.auth.signInWithIdToken(
-          provider: OAuthProvider.google,
-          idToken: idToken,
-          accessToken: accessToken,
-        );
-
-        if (response.user != null) {
-          await _fetchProfileAndCompany(response.user!.id);
-          _isLoading = false;
-          notifyListeners();
-          return true;
-        }
-      }
+      _isLoading = false;
+      notifyListeners();
+      return true;
     } catch (e) {
       debugPrint("signInWithGoogle hatası: $e");
       _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
   /// E-posta & Şifre ile Giriş
