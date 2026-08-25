@@ -225,6 +225,66 @@ class AuthService with ChangeNotifier {
     return false;
   }
 
+  /// Şifremi Unuttum - E-posta ile Sıfırlama Bağlantısı Gönder
+  Future<bool> sendPasswordResetEmail(String email) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (!SupabaseConfig.isConfigured) {
+        await Future.delayed(const Duration(seconds: 1));
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+
+      await _client!.auth.resetPasswordForEmail(
+        email.trim(),
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint("sendPasswordResetEmail hatası: $e");
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Yeni Şifreyi Kaydet
+  Future<bool> updatePassword(String newPassword) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (!SupabaseConfig.isConfigured) {
+        await Future.delayed(const Duration(seconds: 1));
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+
+      await _client!.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint("updatePassword hatası: $e");
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Kullanıcıyı Firma Kodu ile bir şirkete bağlar (Örn: 'CMP-34')
   Future<bool> joinCompanyByCode(String code, {String? userId}) async {
     final uid = userId ?? _currentUser?.id ?? _client?.auth.currentUser?.id;

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'models.dart';
 import 'providers.dart';
 import 'services/auth_service.dart';
-import 'services/supabase_config.dart';
 import 'admin_screens.dart';
 import 'operator_screens.dart';
 import 'screens.dart';
@@ -17,15 +16,16 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // 0: Giriş & Yöntem Seçimi, 1: E-posta / Şifre ile Giriş
-  int _currentStep = 0;
+  // 0: Müşteri Girişi, 1: Müşteri Kayıt Ol
+  int _activeTab = 0;
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
+  // Controllers
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _companyCodeController = TextEditingController();
-  bool _isSignUp = false;
 
   @override
   void dispose() {
@@ -43,12 +43,24 @@ class _LoginScreenState extends State<LoginScreen> {
         content: Text(message),
         backgroundColor: Colors.red.shade700,
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
 
   Future<void> _handlePostLoginNavigation(UserProfile user) async {
-    // AppProvider'ı senkronize et
     final appProvider = Provider.of<AppProvider>(context, listen: false);
     appProvider.updateUserProfile(
       name: user.name,
@@ -56,17 +68,13 @@ class _LoginScreenState extends State<LoginScreen> {
       photoUrl: user.photoUrl,
     );
 
-    // Eğer kullanıcının henüz bir firması atanmamışsa firma kodu sor
-    if (user.companyId == null) {
-      final attached = await _showCompanyCodeDialog();
-      if (!attached) {
-        // İptal edildiyse yine de müşteri ekranına devam edebilir
-      }
+    // Eğer kullanıcının firması eşleşmemişse firma kodu sor
+    if (user.companyId == null && user.role == UserRole.customer) {
+      await _showCompanyCodeDialog();
     }
 
     if (!mounted) return;
 
-    // Role göre yönlendir
     Widget targetScreen;
     switch (user.role) {
       case UserRole.kitchen:
@@ -86,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// Firma Kodu Sorma Penceresi
   Future<bool> _showCompanyCodeDialog() async {
     final codeCtrl = TextEditingController();
     bool joined = false;
@@ -160,6 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return joined;
   }
 
+  /// Google ile Giriş / Kayıt
   Future<void> _handleGoogleSignIn() async {
     setState(() => _isLoading = true);
     final authService = AuthService();
@@ -173,14 +183,20 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  /// E-posta ile Giriş veya Kayıt
   Future<void> _handleEmailAuth() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
-    final code = _companyCodeController.text.trim();
+    final companyCode = _companyCodeController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
       _showError("Lütfen e-posta ve şifrenizi girin.");
+      return;
+    }
+
+    if (_activeTab == 1 && name.isEmpty) {
+      _showError("Lütfen adınızı ve soyadınızı girin.");
       return;
     }
 
@@ -188,19 +204,19 @@ class _LoginScreenState extends State<LoginScreen> {
     final authService = AuthService();
     bool success;
 
-    if (_isSignUp) {
-      if (name.isEmpty) {
-        setState(() => _isLoading = false);
-        _showError("Lütfen adınızı ve soyadınızı girin.");
-        return;
-      }
+    if (_activeTab == 1) {
+      // Kayıt Ol
       success = await authService.signUpWithEmail(
         email: email,
         password: password,
         fullName: name,
-        companyCode: code.isNotEmpty ? code : null,
+        companyCode: companyCode.isNotEmpty ? companyCode : null,
       );
+      if (success) {
+        _showSuccess("Hesabınız oluşturuldu!");
+      }
     } else {
+      // Giriş Yap
       success = await authService.signInWithEmail(email, password);
     }
 
@@ -213,169 +229,197 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _handleDemoLogin(UserRole role) {
-    final authService = AuthService();
-    authService.setDemoUser(role);
-    _handlePostLoginNavigation(authService.currentUser!);
-  }
+  /// Şifremi Unuttum Modalı (E-posta ile Sıfırlama)
+  void _showForgotPasswordSheet() {
+    final resetEmailCtrl = TextEditingController(text: _emailController.text.trim());
+    bool isSending = false;
 
-  @override
-  Widget build(BuildContext context) {
-    if (_currentStep == 1) {
-      return _buildEmailAuthView();
-    }
-
-    return Scaffold(
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.coffee_rounded, size: 64, color: Colors.orange),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 28,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 28,
               ),
-              const SizedBox(height: 24),
-              const Text(
-                "COMPOUND COFFEE",
-                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: 1.2),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                "Kurumsal & Güvenli Kahve Platformu",
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-              ),
-              const SizedBox(height: 36),
-
-              // Ana Google Giriş Butonu
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _handleGoogleSignIn,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black87,
-                    elevation: 2,
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
-                        )
-                      : const Icon(Icons.g_mobiledata, size: 34, color: Colors.blue),
-                  label: Text(
-                    _isLoading ? "Giriş Yapılıyor..." : "Google ile Devam Et",
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // E-posta ile Giriş Butonu
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: OutlinedButton.icon(
-                  onPressed: () => setState(() {
-                    _currentStep = 1;
-                    _isSignUp = false;
-                  }),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: Colors.grey.shade400),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  icon: const Icon(Icons.mail_outline, color: Colors.black87),
-                  label: const Text(
-                    "E-posta ile Giriş Yap",
-                    style: TextStyle(fontSize: 15, color: Colors.black87, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-              Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: Divider(color: Colors.grey.shade300)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(
-                      "HIZLI TEST / ROL SEÇİMİ",
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade500, letterSpacing: 1),
-                    ),
-                  ),
-                  Expanded(child: Divider(color: Colors.grey.shade300)),
-                ],
-              ),
-              const SizedBox(height: 18),
-
-              // Demo Rol Butonları (Test Kolaylığı)
-              Row(
-                children: [
-                  Expanded(
-                    child: _QuickRoleCard(
-                      icon: Icons.person_rounded,
-                      title: "Müşteri",
-                      subtitle: "Sipariş Ver",
-                      color: Colors.orange,
-                      onTap: () => _handleDemoLogin(UserRole.customer),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QuickRoleCard(
-                      icon: Icons.soup_kitchen_rounded,
-                      title: "Mutfak",
-                      subtitle: "KDS Paneli",
-                      color: Colors.blueGrey,
-                      onTap: () => _handleDemoLogin(UserRole.kitchen),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QuickRoleCard(
-                      icon: Icons.admin_panel_settings_rounded,
-                      title: "Yönetici",
-                      subtitle: "Admin",
-                      color: Colors.purple.shade700,
-                      onTap: () => _handleDemoLogin(UserRole.admin),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              if (!SupabaseConfig.isConfigured)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.amber.shade200),
-                  ),
-                  child: Row(
+                  Row(
                     children: [
-                      Icon(Icons.info_outline, color: Colors.amber.shade900, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          "Geliştirici Modu Aktif: Supabase API anahtarları girilene kadar otomatik demo modunda çalışır.",
-                          style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          shape: BoxShape.circle,
                         ),
+                        child: const Icon(Icons.lock_reset_rounded, color: Colors.orange, size: 28),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          "Şifremi Unuttum",
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Hesabınıza bağlı e-posta adresinizi girin. Size tek tıkla şifrenizi yenileyebileceğiniz güvenli bir sıfırlama bağlantısı göndereceğiz.",
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.4),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: resetEmailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: "E-posta Adresi",
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: isSending
+                          ? null
+                          : () async {
+                              final email = resetEmailCtrl.text.trim();
+                              if (email.isEmpty) {
+                                _showError("Lütfen e-posta adresinizi girin.");
+                                return;
+                              }
+                              setSheetState(() => isSending = true);
+                              final success = await AuthService().sendPasswordResetEmail(email);
+                              setSheetState(() => isSending = false);
+
+                              if (ctx.mounted) Navigator.pop(ctx);
+
+                              if (success) {
+                                _showSuccess("Şifre sıfırlama bağlantısı $email adresine gönderildi! ✉️");
+                              } else {
+                                _showError(AuthService().errorMessage ?? "Sıfırlama e-postası gönderilemedi.");
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: isSending
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text(
+                              "Sıfırlama Bağlantısı Gönder",
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Dükkan Sahibi / Personel / Yönetici Girişi Penceresi
+  void _showStaffLoginDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.storefront_rounded, color: Colors.blueGrey),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    "İşletme & Personel",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "Mutfak KDS ekranı ve mağaza yönetim paneli için giriş yapın:",
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 20),
+
+              // Mutfak / KDS Butonu
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade300),
                 ),
+                leading: const Icon(Icons.soup_kitchen_rounded, color: Colors.blueGrey, size: 30),
+                title: const Text("Mutfak / KDS Ekranı", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                subtitle: const Text("Canlı sipariş takibi & hazırlama", style: TextStyle(fontSize: 12)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  AuthService().setDemoUser(UserRole.kitchen);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const OperatorDashboardScreen()));
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // Yönetici Paneli Butonu
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+                leading: Icon(Icons.admin_panel_settings_rounded, color: Colors.purple.shade700, size: 30),
+                title: const Text("Yönetici (Admin) Paneli", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                subtitle: const Text("Menü, stok, fiyat ve raporlar", style: TextStyle(fontSize: 12)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminLoginScreen()));
+                },
+              ),
             ],
           ),
         ),
@@ -383,42 +427,175 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildEmailAuthView() {
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => setState(() => _currentStep = 0),
-        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        foregroundColor: Colors.black,
-        title: Text(
-          _isSignUp ? "Hesap Oluştur" : "E-posta ile Giriş",
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-        ),
+        actions: [
+          // Sağ Üst Köşedeki Zarif Personel / İşletme Butonu
+          Padding(
+            padding: const EdgeInsets.only(right: 14.0),
+            child: TextButton.icon(
+              onPressed: _showStaffLoginDialog,
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.blueGrey.shade800,
+                backgroundColor: Colors.grey.shade100,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+              icon: const Icon(Icons.storefront_outlined, size: 18, color: Colors.blueGrey),
+              label: const Text(
+                "İşletme Girişi",
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 28.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _isSignUp ? "Şirketinize Katılın" : "Hoş Geldiniz",
-                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _isSignUp
-                    ? "Bilgilerinizi girerek şirketinize özel kahve deneyimini başlatın."
-                    : "Lütfen kayıtlı e-posta ve şifrenizi girin.",
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              // Logo & Karşılama
+              Center(
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.coffee_rounded, size: 52, color: Colors.orange),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      "COMPOUND COFFEE",
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.2),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Şirketinize Özel Hızlı Kahve Deneyimi",
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 28),
 
-              if (_isSignUp) ...[
+              // Sekme Değiştirici (Giriş Yap / Kayıt Ol)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                padding: const EdgeInsets.all(4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _activeTab = 0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: _activeTab == 0 ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: _activeTab == 0
+                                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
+                                : [],
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Giriş Yap",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: _activeTab == 0 ? Colors.orange : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _activeTab = 1),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: _activeTab == 1 ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: _activeTab == 1
+                                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
+                                : [],
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Yeni Kayıt",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: _activeTab == 1 ? Colors.orange : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Google ile Giriş Butonu
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _handleGoogleSignIn,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black87,
+                    elevation: 1.5,
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: _isLoading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+                        )
+                      : const Icon(Icons.g_mobiledata, size: 34, color: Colors.blue),
+                  label: Text(
+                    _activeTab == 0 ? "Google ile Giriş Yap" : "Google ile Kayıt Ol",
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Ayırıcı Çizgi
+              Row(
+                children: [
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      "veya e-posta ile",
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    ),
+                  ),
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Kayıt Formu Ek Alanları
+              if (_activeTab == 1) ...[
                 TextField(
                   controller: _nameController,
                   decoration: InputDecoration(
@@ -429,7 +606,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     fillColor: Colors.grey.shade50,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 TextField(
                   controller: _companyCodeController,
                   textCapitalization: TextCapitalization.characters,
@@ -442,9 +619,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     fillColor: Colors.grey.shade50,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ],
 
+              // E-posta Alanı
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -456,24 +634,55 @@ class _LoginScreenState extends State<LoginScreen> {
                   fillColor: Colors.grey.shade50,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
+              // Şifre Alanı
               TextField(
                 controller: _passwordController,
-                obscureText: true,
+                obscureText: _obscurePassword,
                 decoration: InputDecoration(
                   labelText: "Şifre",
                   prefixIcon: const Icon(Icons.lock_outline),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      color: Colors.grey,
+                    ),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
                   fillColor: Colors.grey.shade50,
                 ),
               ),
-              const SizedBox(height: 28),
 
+              // Şifremi Unuttum Butonu (Sadece Giriş Yap sekmesinde)
+              if (_activeTab == 0)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _showForgotPasswordSheet,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      "Şifremi Unuttum?",
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+
+              // Ana Gönder Butonu
               SizedBox(
                 width: double.infinity,
-                height: 56,
+                height: 54,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _handleEmailAuth,
                   style: ElevatedButton.styleFrom(
@@ -487,73 +696,45 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
                         )
                       : Text(
-                          _isSignUp ? "Kayıt Ol ve Giriş Yap" : "Giriş Yap",
+                          _activeTab == 0 ? "Giriş Yap" : "Hesap Oluştur",
                           style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                 ),
               ),
-              const SizedBox(height: 20),
 
+              const SizedBox(height: 18),
+
+              // Alt Bilgi / Geçiş
               Center(
-                child: TextButton(
-                  onPressed: () => setState(() => _isSignUp = !_isSignUp),
-                  child: Text(
-                    _isSignUp
-                        ? "Zaten hesabınız var mı? Giriş Yapın"
-                        : "Hesabınız yok mu? Yeni Hesap Oluşturun",
-                    style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                child: GestureDetector(
+                  onTap: () => setState(() => _activeTab = _activeTab == 0 ? 1 : 0),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: RichText(
+                      text: TextSpan(
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                        children: [
+                          TextSpan(
+                            text: _activeTab == 0
+                                ? "Hesabınız yok mu? "
+                                : "Zaten hesabınız var mı? ",
+                          ),
+                          TextSpan(
+                            text: _activeTab == 0 ? "Hemen Kayıt Olun" : "Giriş Yapın",
+                            style: const TextStyle(
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
+              const SizedBox(height: 20),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _QuickRoleCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickRoleCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 6),
-            Text(
-              title,
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-            ),
-          ],
         ),
       ),
     );
