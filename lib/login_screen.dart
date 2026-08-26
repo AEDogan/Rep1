@@ -317,9 +317,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               }
                               setSheetState(() => isSending = true);
                               final success = await AuthService().sendPasswordResetEmail(email);
-                              setSheetState(() => isSending = false);
 
-                              if (ctx.mounted) Navigator.pop(ctx);
+                              if (ctx.mounted) {
+                                Navigator.pop(ctx);
+                              }
 
                               if (success) {
                                 _showSuccess("Şifre sıfırlama bağlantısı $email adresine gönderildi! ✉️");

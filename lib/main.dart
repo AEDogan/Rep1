@@ -9,6 +9,10 @@ import 'splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/supabase_config.dart';
 
+import 'reset_password_screen.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -19,6 +23,14 @@ Future<void> main() async {
         url: SupabaseConfig.supabaseUrl,
         anonKey: SupabaseConfig.supabaseAnonKey,
       );
+
+      // Şifre sıfırlama linkine tıklandığında algıla
+      Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+        final event = data.event;
+        if (event == AuthChangeEvent.passwordRecovery) {
+          navigatorKey.currentState?.pushNamed('/reset-password');
+        }
+      });
     } catch (e) {
       debugPrint("Supabase başlatma hatası: $e");
     }
@@ -41,6 +53,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Compound Coffee',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -53,6 +66,7 @@ class MyApp extends StatelessWidget {
         '/splash': (context) => const SplashScreen(),
         '/login': (context) => const LoginScreen(),
         '/home': (context) => const HomeScreen(),
+        '/reset-password': (context) => const ResetPasswordScreen(),
       },
     );
   }
