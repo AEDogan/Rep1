@@ -155,14 +155,31 @@ class AuthService with ChangeNotifier {
       );
 
       if (response.user != null) {
-        await _fetchProfileAndCompany(response.user!.id);
+        try {
+          await _fetchProfileAndCompany(response.user!.id);
+        } catch (_) {}
+
+        if (_currentUser == null) {
+          final rawName = response.user!.userMetadata?['full_name'] as String?;
+          _currentUser = UserProfile(
+            id: response.user!.id,
+            name: rawName?.isNotEmpty == true ? rawName! : email.split('@').first,
+            email: email,
+            role: UserRole.customer,
+          );
+        }
+
         _isLoading = false;
         notifyListeners();
         return true;
       }
     } catch (e) {
       debugPrint("signInWithEmail hatası: $e");
-      _errorMessage = e.toString();
+      if (e is AuthException) {
+        _errorMessage = e.message;
+      } else {
+        _errorMessage = e.toString();
+      }
     }
 
     _isLoading = false;
@@ -206,15 +223,31 @@ class AuthService with ChangeNotifier {
         if (companyCode != null && companyCode.trim().isNotEmpty) {
           await joinCompanyByCode(companyCode.trim(), userId: response.user!.id);
         } else {
-          await _fetchProfileAndCompany(response.user!.id);
+          try {
+            await _fetchProfileAndCompany(response.user!.id);
+          } catch (_) {}
         }
+
+        if (_currentUser == null) {
+          _currentUser = UserProfile(
+            id: response.user!.id,
+            name: fullName,
+            email: email,
+            role: UserRole.customer,
+          );
+        }
+
         _isLoading = false;
         notifyListeners();
         return true;
       }
     } catch (e) {
       debugPrint("signUpWithEmail hatası: $e");
-      _errorMessage = e.toString();
+      if (e is AuthException) {
+        _errorMessage = e.message;
+      } else {
+        _errorMessage = e.toString();
+      }
     }
 
     _isLoading = false;
