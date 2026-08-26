@@ -996,7 +996,89 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
+
+              // Hızlı Test / Demo Seçenekleri Kutusu
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.flash_on_rounded, color: Colors.orange, size: 20),
+                        SizedBox(width: 6),
+                        Text(
+                          "Hızlı Test & Önizleme Girişi",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepOrange),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              AuthService().setDemoUser(UserRole.customer);
+                              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+                            },
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              side: BorderSide(color: Colors.orange.shade300),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.coffee_rounded, size: 16, color: Colors.orange),
+                            label: const Text("☕ Müşteri", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              AuthService().setDemoUser(UserRole.kitchen);
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const OperatorDashboardScreen()));
+                            },
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              side: BorderSide(color: Colors.blueGrey.shade300),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.soup_kitchen_rounded, size: 16, color: Colors.blueGrey),
+                            label: const Text("👨‍🍳 Mutfak", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              AuthService().setDemoUser(UserRole.admin);
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+                            },
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              side: BorderSide(color: Colors.purple.shade300),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: Icon(Icons.admin_panel_settings_rounded, size: 16, color: Colors.purple.shade700),
+                            label: const Text("⚙️ Admin", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
             ],
           ),
         ),
