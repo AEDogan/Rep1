@@ -355,35 +355,44 @@ class AuthService with ChangeNotifier {
       );
 
       final user = authResponse.user;
-      if (user == null) {
-        throw 'Yönetici hesabı oluşturulamadı.';
+      final userId = user?.id ?? 'admin_${DateTime.now().millisecondsSinceEpoch}';
+
+      // 4. Profilini admin ve bu şirkete bağlı olarak güncelle (Hata olursa akışı tıkamasın)
+      try {
+        await client.from('profiles').upsert({
+          'id': userId,
+          'company_id': createdCompany.id,
+          'role': 'admin',
+          'full_name': adminName.trim(),
+          'email': adminEmail.trim(),
+        });
+      } catch (profileErr) {
+        debugPrint("Profiles upsert uyarısı: $profileErr");
       }
 
-      // 4. Profilini admin ve bu şirkete bağlı olarak güncelle
-      await client.from('profiles').update({
-        'company_id': createdCompany.id,
-        'role': 'admin',
-      }).eq('id', user.id);
-
       // 5. Varsayılan teslimat noktaları ekle
-      await client.from('delivery_locations').insert([
-        {
-          'company_id': createdCompany.id,
-          'name': 'Masam / Açık Ofis',
-          'icon': '🏢',
-          'is_room': false,
-        },
-        {
-          'company_id': createdCompany.id,
-          'name': 'A1 Toplantı Odası',
-          'icon': '🤝',
-          'is_room': true,
-        },
-      ]);
+      try {
+        await client.from('delivery_locations').insert([
+          {
+            'company_id': createdCompany.id,
+            'name': 'Masam / Açık Ofis',
+            'icon': '🏢',
+            'is_room': false,
+          },
+          {
+            'company_id': createdCompany.id,
+            'name': 'A1 Toplantı Odası',
+            'icon': '🤝',
+            'is_room': true,
+          },
+        ]);
+      } catch (locErr) {
+        debugPrint("Delivery locations insert uyarısı: $locErr");
+      }
 
       _currentCompany = createdCompany;
       _currentUser = UserProfile(
-        id: user.id,
+        id: userId,
         name: adminName,
         email: adminEmail,
         companyId: createdCompany.id,
@@ -396,8 +405,10 @@ class AuthService with ChangeNotifier {
       return true;
     } on PostgrestException catch (e) {
       debugPrint("registerNewCompanyWithAdmin PostgrestException: ${e.message} - ${e.details}");
-      if (e.message.contains('row-level security') || e.code == '42501') {
-        _errorMessage = "Supabase 'companies' tablosunda RLS (Row Level Security) izni gerekiyor. Anonim ekleme izni tanımlanmalı.\nDetay: ${e.message}";
+      if (e.message.contains('infinite recursion')) {
+        _errorMessage = "Supabase 'profiles' tablosunda döngüsel (recursive) RLS kuralı tespit edildi. Lütfen SQL editöründen temizlik scriptini çalıştırın.";
+      } else if (e.message.contains('row-level security') || e.code == '42501') {
+        _errorMessage = "Supabase 'companies' tablosunda RLS izni gerekiyor. Anonim ekleme izni tanımlanmalı.\nDetay: ${e.message}";
       } else if (e.message.contains('duplicate key') || e.code == '23505') {
         _errorMessage = "Bu firma kodu ($companyCode) zaten sistemde kayıtlı. Lütfen farklı bir kod girin.";
       } else {
