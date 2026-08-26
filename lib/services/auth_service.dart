@@ -108,10 +108,11 @@ class AuthService with ChangeNotifier {
         return true;
       }
 
-      // Supabase OAuth ile Google Girişi
+      // Supabase OAuth ile Google Girişi (Mevcut host ve porta yönlendir)
+      final redirectUrl = kIsWeb ? Uri.base.origin : 'io.supabase.compoundcoffee://login-callback';
       await _client!.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: kIsWeb ? null : 'io.supabase.compoundcoffee://login-callback',
+        redirectTo: redirectUrl,
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
 
@@ -269,8 +270,10 @@ class AuthService with ChangeNotifier {
         return true;
       }
 
+      final redirectUrl = kIsWeb ? Uri.base.origin : 'io.supabase.compoundcoffee://reset-callback';
       await _client!.auth.resetPasswordForEmail(
         email.trim(),
+        redirectTo: redirectUrl,
       );
 
       _isLoading = false;
