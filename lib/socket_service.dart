@@ -22,10 +22,10 @@ class SocketService {
     
     // Gecikme simülasyonu (Network latency)
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (event == 'new_order') {
+      if (!_orderStreamController.isClosed && event == 'new_order') {
         // Tüm dinleyicilere (Mutfak Paneli) haber ver
         _orderStreamController.add(data as Map<String, dynamic>);
-      } else if (event == 'toggle_product') {
+      } else if (!_productStreamController.isClosed && event == 'toggle_product') {
         // Tüm dinleyicilere (Müşteri Uygulaması) haber ver
         _productStreamController.add(data as Map<String, dynamic>);
       }

@@ -1,12 +1,68 @@
 // models.dart
 
-enum OrderStatus { received, preparing, onTheWay, delivered }
+enum OrderStatus {
+  received,
+  preparing,
+  onTheWay,
+  delivered,
+  cancelled;
+
+  String toDbString() {
+    switch (this) {
+      case OrderStatus.received:
+        return 'received';
+      case OrderStatus.preparing:
+        return 'preparing';
+      case OrderStatus.onTheWay:
+        return 'on_the_way';
+      case OrderStatus.delivered:
+        return 'delivered';
+      case OrderStatus.cancelled:
+        return 'cancelled';
+    }
+  }
+
+  static OrderStatus fromDbString(String? str) {
+    switch (str?.toLowerCase()) {
+      case 'preparing':
+        return OrderStatus.preparing;
+      case 'on_the_way':
+      case 'ontheway':
+        return OrderStatus.onTheWay;
+      case 'delivered':
+        return OrderStatus.delivered;
+      case 'cancelled':
+        return OrderStatus.cancelled;
+      case 'received':
+      default:
+        return OrderStatus.received;
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case OrderStatus.received:
+        return 'Sipariş Alındı';
+      case OrderStatus.preparing:
+        return 'Hazırlanıyor';
+      case OrderStatus.onTheWay:
+        return 'Kuryede / Yolda';
+      case OrderStatus.delivered:
+        return 'Teslim Edildi';
+      case OrderStatus.cancelled:
+        return 'İptal Edildi';
+    }
+  }
+}
 
 enum PaymentMethod { googlePay, payAtDoor }
 
 class Order {
   final String id;
+  final String? companyId;
+  final String? userId;
   final String customerName;
+  final String? deliveryLocationId;
   final String locationName;
   final List<CartItem> items;
   final double totalPrice;
@@ -16,7 +72,10 @@ class Order {
 
   Order({
     required this.id,
+    this.companyId,
+    this.userId,
     required this.customerName,
+    this.deliveryLocationId,
     required this.locationName,
     required this.items,
     required this.totalPrice,
@@ -24,6 +83,46 @@ class Order {
     required this.timestamp,
     this.status = OrderStatus.received,
   });
+
+  factory Order.fromJson(Map<String, dynamic> json) {
+    final rawItems = json['order_items'] as List<dynamic>? ??
+        json['items'] as List<dynamic>? ??
+        [];
+
+    return Order(
+      id: json['id'] as String? ?? '',
+      companyId: json['company_id'] as String?,
+      userId: json['user_id'] as String?,
+      customerName: json['customer_name'] as String? ?? 'Misafir',
+      deliveryLocationId: json['delivery_location_id'] as String?,
+      locationName: json['location_name'] as String? ?? 'Bilinmiyor',
+      totalPrice: (json['total_price'] as num?)?.toDouble() ?? 0.0,
+      paymentMethod: json['payment_method'] as String? ?? 'Google Pay',
+      timestamp: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      status: OrderStatus.fromDbString(json['status'] as String?),
+      items: rawItems
+          .map((item) => CartItem.fromJson(item as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      if (companyId != null) 'company_id': companyId,
+      if (userId != null) 'user_id': userId,
+      'customer_name': customerName,
+      if (deliveryLocationId != null) 'delivery_location_id': deliveryLocationId,
+      'location_name': locationName,
+      'total_price': totalPrice,
+      'payment_method': paymentMethod,
+      'status': status.toDbString(),
+      'created_at': timestamp.toIso8601String(),
+      'items': items.map((i) => i.toJson()).toList(),
+    };
+  }
 }
 
 enum UserRole { customer, kitchen, admin }
@@ -330,5 +429,52 @@ class CartItem {
   double get totalPrice {
     double modsPrice = selectedModifiers.fold(0, (sum, item) => sum + item.price);
     return (product.basePrice + modsPrice) * quantity;
+  }
+
+  factory CartItem.fromJson(Map<String, dynamic> json) {
+    Product parsedProduct;
+    if (json['product'] != null && json['product'] is Map<String, dynamic>) {
+      parsedProduct = Product.fromJson(json['product'] as Map<String, dynamic>);
+    } else {
+      parsedProduct = Product(
+        id: json['product_id'] as String? ?? 'p_custom',
+        name: json['product_name'] as String? ?? 'Kahve',
+        description: '',
+        basePrice: (json['unit_price'] as num?)?.toDouble() ?? 0.0,
+        imageUrl: '',
+        category: 'drink',
+      );
+    }
+
+    final rawMods = json['selected_modifiers'] as List<dynamic>? ?? [];
+    final modifiers = rawMods
+        .map((m) => ProductModifier.fromJson(m as Map<String, dynamic>))
+        .toList();
+
+    return CartItem(
+      id: json['id'] as String? ?? '',
+      product: parsedProduct,
+      selectedModifiers: modifiers,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      note: json['item_note'] as String? ?? json['note'] as String? ?? '',
+      addedBy: json['added_by'] as String? ?? 'Sen',
+      giftNote: json['gift_note'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'product_id': product.id,
+      'product_name': product.name,
+      'quantity': quantity,
+      'unit_price': product.basePrice,
+      'total_price': totalPrice,
+      'selected_modifiers': selectedModifiers.map((m) => m.toJson()).toList(),
+      'item_note': note,
+      'gift_note': giftNote,
+      'added_by': addedBy,
+      'product': product.toJson(),
+    };
   }
 }

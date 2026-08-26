@@ -208,8 +208,171 @@ class DatabaseService {
     }
   }
 
-  /// Realtime aboneliğini temizle
+  RealtimeChannel? _ordersChannel;
+
+  /// Yeni Sipariş Oluştur ve Ürünlerini Kaydet (Müşteri)
+  Future<Order?> createOrder({
+    required Order order,
+    required String companyId,
+    String? userId,
+    String? deliveryLocationId,
+  }) async {
+    final client = _client;
+    if (client == null) {
+      // Demo / Offline fallback: Local order return
+      return order;
+    }
+
+    try {
+      // 1. Siparişi ana tabloya ekle
+      final orderData = await client
+          .from('orders')
+          .insert({
+            'company_id': companyId,
+            'user_id': userId,
+            'customer_name': order.customerName,
+            'delivery_location_id': deliveryLocationId,
+            'location_name': order.locationName,
+            'total_price': order.totalPrice,
+            'payment_method': order.paymentMethod,
+            'status': order.status.toDbString(),
+          })
+          .select('id, created_at')
+          .single();
+
+      final String createdOrderId = orderData['id'] as String;
+      final DateTime createdAt = DateTime.tryParse(orderData['created_at'] as String? ?? '') ?? DateTime.now();
+
+      // 2. Siparişteki her bir ürünü ve opsiyonlarını kaydet
+      for (var item in order.items) {
+        await client.from('order_items').insert({
+          'order_id': createdOrderId,
+          'product_id': item.product.id.length > 30 ? item.product.id : null,
+          'product_name': item.product.name,
+          'quantity': item.quantity,
+          'unit_price': item.product.basePrice,
+          'total_price': item.totalPrice,
+          'selected_modifiers': item.selectedModifiers.map((m) => m.toJson()).toList(),
+          'item_note': item.note,
+          'gift_note': item.giftNote,
+        });
+      }
+
+      return Order(
+        id: createdOrderId,
+        companyId: companyId,
+        userId: userId,
+        customerName: order.customerName,
+        deliveryLocationId: deliveryLocationId,
+        locationName: order.locationName,
+        items: order.items,
+        totalPrice: order.totalPrice,
+        paymentMethod: order.paymentMethod,
+        timestamp: createdAt,
+        status: order.status,
+      );
+    } catch (e) {
+      debugPrint("DatabaseService.createOrder hatası: $e");
+      return order;
+    }
+  }
+
+  /// Firmanın Aktif / Bekleyen Siparişlerini Çeker (KDS / Mutfak)
+  Future<List<Order>> fetchActiveOrders(String companyId) async {
+    final client = _client;
+    if (client == null) return [];
+
+    try {
+      final response = await client
+          .from('orders')
+          .select('''
+            *,
+            order_items (*)
+          ''')
+          .eq('company_id', companyId)
+          .neq('status', 'delivered')
+          .neq('status', 'cancelled')
+          .order('created_at', ascending: false);
+
+      final List<dynamic> data = response as List<dynamic>;
+      return data.map((json) => Order.fromJson(json as Map<String, dynamic>)).toList();
+    } catch (e) {
+      debugPrint("DatabaseService.fetchActiveOrders hatası: $e");
+      return [];
+    }
+  }
+
+  /// Sipariş Durumunu Günceller (KDS / Barista: Hazırlanıyor -> Yolda -> Teslim)
+  Future<bool> updateOrderStatus(String orderId, OrderStatus status) async {
+    final client = _client;
+    if (client == null) return true;
+
+    try {
+      await client.from('orders').update({
+        'status': status.toDbString(),
+      }).eq('id', orderId);
+
+      return true;
+    } catch (e) {
+      debugPrint("DatabaseService.updateOrderStatus hatası: $e");
+      return false;
+    }
+  }
+
+  /// Supabase Realtime: Canlı Siparişleri ve Durum Güncellemelerini Dinle (KDS & Müşteri)
+  void subscribeToOrders({
+    required String companyId,
+    required Function(Order newOrder) onNewOrder,
+    required Function(String orderId, OrderStatus status) onStatusUpdate,
+  }) {
+    final client = _client;
+    if (client == null) return;
+
+    try {
+      _ordersChannel?.unsubscribe();
+      _ordersChannel = client
+          .channel('public:orders:company_$companyId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'orders',
+            callback: (payload) async {
+              debugPrint("Realtime Order Event: ${payload.eventType}");
+              
+              if (payload.eventType == PostgresChangeEvent.insert) {
+                final record = payload.newRecord;
+                final orderId = record['id'] as String?;
+                if (orderId != null) {
+                  // Siparişin ürünleriyle birlikte detayını çek
+                  try {
+                    final response = await client
+                        .from('orders')
+                        .select('*, order_items(*)')
+                        .eq('id', orderId)
+                        .single();
+                    final order = Order.fromJson(response);
+                    onNewOrder(order);
+                  } catch (_) {}
+                }
+              } else if (payload.eventType == PostgresChangeEvent.update) {
+                final record = payload.newRecord;
+                final orderId = record['id'] as String?;
+                final statusStr = record['status'] as String?;
+                if (orderId != null && statusStr != null) {
+                  onStatusUpdate(orderId, OrderStatus.fromDbString(statusStr));
+                }
+              }
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint("Realtime subscribeToOrders hatası: $e");
+    }
+  }
+
+  /// Realtime aboneliklerini temizle
   void dispose() {
     _productsChannel?.unsubscribe();
+    _ordersChannel?.unsubscribe();
   }
 }
