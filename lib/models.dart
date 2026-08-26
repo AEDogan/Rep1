@@ -78,16 +78,18 @@ class Order {
     this.deliveryLocationId,
     required this.locationName,
     required this.items,
-    required this.totalPrice,
+    required double totalPrice,
     required this.paymentMethod,
     required this.timestamp,
     this.status = OrderStatus.received,
-  });
+  }) : totalPrice = totalPrice < 0 ? 0.0 : totalPrice;
 
   factory Order.fromJson(Map<String, dynamic> json) {
     final rawItems = json['order_items'] as List<dynamic>? ??
         json['items'] as List<dynamic>? ??
         [];
+
+    final rawTotal = (json['total_price'] as num?)?.toDouble() ?? 0.0;
 
     return Order(
       id: json['id'] as String? ?? '',
@@ -96,7 +98,7 @@ class Order {
       customerName: json['customer_name'] as String? ?? 'Misafir',
       deliveryLocationId: json['delivery_location_id'] as String?,
       locationName: json['location_name'] as String? ?? 'Bilinmiyor',
-      totalPrice: (json['total_price'] as num?)?.toDouble() ?? 0.0,
+      totalPrice: rawTotal < 0 ? 0.0 : rawTotal,
       paymentMethod: json['payment_method'] as String? ?? 'Google Pay',
       timestamp: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String) ?? DateTime.now()
@@ -272,9 +274,9 @@ class ProductModifier {
   ProductModifier({
     required this.id,
     required this.name,
-    required this.price,
+    required double price,
     this.isAvailable = true,
-  });
+  }) : price = price < 0 ? 0.0 : price;
 
   String get priceLabel => price <= 0 ? "Ücretsiz" : "+${price.toStringAsFixed(0)} TL";
 
@@ -302,17 +304,16 @@ class ModifierGroup {
   final String name;
   final bool isRequired;
   final bool isMultiSelect;
+  final String? dependentOnVariantId;
   final List<ProductModifier> options;
-  // Çakışma Mantığı: Eğer bu grup belirli bir seçime bağlıysa buraya eklenir
-  final String? dependentOnVariantId; 
 
   ModifierGroup({
     required this.id,
     required this.name,
-    required this.options,
     this.isRequired = false,
     this.isMultiSelect = false,
     this.dependentOnVariantId,
+    required this.options,
   });
 
   factory ModifierGroup.fromJson(Map<String, dynamic> json) {
@@ -350,7 +351,7 @@ class Product {
   final String description;
   final double basePrice;
   final String imageUrl;
-  final String category; // 'drink' or 'snack'
+  final String category;
   final bool isInfiniteStock;
   final int stockQuantity;
   final bool isAvailable;
@@ -361,25 +362,26 @@ class Product {
     this.companyId,
     required this.name,
     required this.description,
-    required this.basePrice,
+    required double basePrice,
     required this.imageUrl,
     required this.category,
     this.isInfiniteStock = true,
     this.stockQuantity = 0,
     this.isAvailable = true,
     this.modifierGroups = const [],
-  });
+  }) : basePrice = basePrice < 0 ? 0.0 : basePrice;
 
   bool get isOutOfStock => !isAvailable || (!isInfiniteStock && stockQuantity <= 0);
 
   factory Product.fromJson(Map<String, dynamic> json) {
     final rawGroups = json['modifier_groups'] as List<dynamic>? ?? [];
+    final rawPrice = (json['base_price'] as num?)?.toDouble() ?? 0.0;
     return Product(
       id: json['id'] as String? ?? '',
       companyId: json['company_id'] as String?,
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      basePrice: (json['base_price'] as num?)?.toDouble() ?? 0.0,
+      basePrice: rawPrice < 0 ? 0.0 : rawPrice,
       imageUrl: json['image_url'] as String? ?? '',
       category: json['category'] as String? ?? 'drink',
       isInfiniteStock: json['is_infinite_stock'] as bool? ?? true,
@@ -414,21 +416,22 @@ class CartItem {
   final int quantity;
   final String note;
   final String addedBy;
-  final String? giftNote; // "X kişisine benden"
+  final String? giftNote;
 
   CartItem({
     required this.id,
     required this.product,
     required this.selectedModifiers,
-    this.quantity = 1,
+    int quantity = 1,
     this.note = '',
     this.addedBy = 'Sen',
     this.giftNote,
-  });
+  }) : quantity = quantity < 1 ? 1 : (quantity > 100 ? 100 : quantity);
 
   double get totalPrice {
-    double modsPrice = selectedModifiers.fold(0, (sum, item) => sum + item.price);
-    return (product.basePrice + modsPrice) * quantity;
+    double modsPrice = selectedModifiers.fold(0.0, (sum, item) => sum + (item.price > 0 ? item.price : 0.0));
+    double unitPrice = product.basePrice > 0 ? product.basePrice : 0.0;
+    return (unitPrice + modsPrice) * quantity;
   }
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
@@ -436,11 +439,12 @@ class CartItem {
     if (json['product'] != null && json['product'] is Map<String, dynamic>) {
       parsedProduct = Product.fromJson(json['product'] as Map<String, dynamic>);
     } else {
+      final rawUnit = (json['unit_price'] as num?)?.toDouble() ?? 0.0;
       parsedProduct = Product(
         id: json['product_id'] as String? ?? 'p_custom',
         name: json['product_name'] as String? ?? 'Kahve',
         description: '',
-        basePrice: (json['unit_price'] as num?)?.toDouble() ?? 0.0,
+        basePrice: rawUnit < 0 ? 0.0 : rawUnit,
         imageUrl: '',
         category: 'drink',
       );
@@ -451,11 +455,13 @@ class CartItem {
         .map((m) => ProductModifier.fromJson(m as Map<String, dynamic>))
         .toList();
 
+    final rawQuantity = (json['quantity'] as num?)?.toInt() ?? 1;
+
     return CartItem(
       id: json['id'] as String? ?? '',
       product: parsedProduct,
       selectedModifiers: modifiers,
-      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      quantity: rawQuantity < 1 ? 1 : (rawQuantity > 100 ? 100 : rawQuantity),
       note: json['item_note'] as String? ?? json['note'] as String? ?? '',
       addedBy: json['added_by'] as String? ?? 'Sen',
       giftNote: json['gift_note'] as String?,

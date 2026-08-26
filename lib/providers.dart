@@ -275,6 +275,19 @@ class AppProvider with ChangeNotifier {
     return total;
   }
 
+  bool _isCheckingOut = false;
+  bool get isCheckingOut => _isCheckingOut;
+
+  static String sanitizeInput(String? text, {int maxLength = 200}) {
+    if (text == null) return '';
+    // Null byte ve zararlı kontrol karakterlerini temizle
+    String sanitized = text.replaceAll('\x00', '').trim();
+    if (sanitized.length > maxLength) {
+      sanitized = sanitized.substring(0, maxLength);
+    }
+    return sanitized;
+  }
+
   // Setters & Actions
   void setLocation(DeliveryLocation loc) {
     _selectedLocation = loc;
@@ -284,86 +297,106 @@ class AppProvider with ChangeNotifier {
   void addToCart(Product product, List<ProductModifier> modifiers, int quantity, {String? giftNote}) {
     if (product.isOutOfStock) return;
     
+    final safeQty = quantity < 1 ? 1 : (quantity > 100 ? 100 : quantity);
+    final sanitizedGiftNote = giftNote != null && giftNote.isNotEmpty
+        ? sanitizeInput(giftNote, maxLength: 100)
+        : null;
+
     _cart.add(CartItem(
       id: DateTime.now().toString(),
       product: product,
       selectedModifiers: modifiers,
-      quantity: quantity,
+      quantity: safeQty,
       addedBy: 'Sen',
-      giftNote: giftNote,
+      giftNote: sanitizedGiftNote,
     ));
     notifyListeners();
   }
 
   Future<void> checkout() async {
-    if (_cart.isEmpty) return;
-    
-    _lastOrderedProduct = _cart.first.product;
-    final orderItems = List<CartItem>.from(_cart);
-    final orderTotal = totalAmount;
-    final companyId = _currentUser?.companyId ??
-        AuthService().currentCompany?.id ??
-        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-    final userId = _currentUser?.id ?? AuthService().currentUser?.id;
+    // 1. Race Condition / Double-Spend & Spam Kilidi
+    if (_isCheckingOut || _cart.isEmpty) return;
+    _isCheckingOut = true;
 
-    final tempOrderId = 'ord_${DateTime.now().millisecondsSinceEpoch}';
-
-    final order = Order(
-      id: tempOrderId,
-      companyId: companyId,
-      userId: userId,
-      customerName: _currentUser?.name ?? "Misafir",
-      deliveryLocationId: _selectedLocation.id,
-      locationName: _selectedLocation.name,
-      items: orderItems,
-      totalPrice: orderTotal,
-      paymentMethod: _selectedPaymentMethod == PaymentMethod.googlePay ? "Google Pay" : "Kapıda Ödeme",
-      timestamp: DateTime.now(),
-      status: OrderStatus.received,
-    );
-
-    // Sadakat damgası
-    _loyaltyStamps++;
-    if (_loyaltyStamps >= 10) {
-      _loyaltyStamps = 0;
-      _freeProducts++;
-    }
-
-    _cart.clear();
-    _activeOrderId = tempOrderId;
-    _activeOrderStatus = OrderStatus.received;
-    _orderStatusMessage = _getStatusMessage(OrderStatus.received);
-    notifyListeners();
-
-    // Veritabanına kaydet
-    final createdOrder = await _databaseService.createOrder(
-      order: order,
-      companyId: companyId,
-      userId: userId,
-      deliveryLocationId: _selectedLocation.id,
-    );
-
-    if (createdOrder != null) {
-      _activeOrderId = createdOrder.id;
-      final exists = _incomingOrders.any((o) => o.id == createdOrder.id);
-      if (!exists) {
-        _incomingOrders.insert(0, createdOrder);
+    try {
+      // 2. Stok Çift Doğrulama (Tükenmiş ürünleri siparişten ele)
+      _cart.removeWhere((item) => item.product.isOutOfStock);
+      if (_cart.isEmpty) {
+        notifyListeners();
+        return;
       }
+
+      _lastOrderedProduct = _cart.first.product;
+      final orderItems = List<CartItem>.from(_cart);
+      final orderTotal = totalAmount < 0 ? 0.0 : totalAmount;
+      final companyId = _currentUser?.companyId ??
+          AuthService().currentCompany?.id ??
+          'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      final userId = _currentUser?.id ?? AuthService().currentUser?.id;
+
+      final tempOrderId = 'ord_${DateTime.now().millisecondsSinceEpoch}';
+
+      final order = Order(
+        id: tempOrderId,
+        companyId: companyId,
+        userId: userId,
+        customerName: sanitizeInput(_currentUser?.name, maxLength: 80).isEmpty
+            ? "Misafir"
+            : sanitizeInput(_currentUser?.name, maxLength: 80),
+        deliveryLocationId: _selectedLocation.id,
+        locationName: _selectedLocation.name,
+        items: orderItems,
+        totalPrice: orderTotal,
+        paymentMethod: _selectedPaymentMethod == PaymentMethod.googlePay ? "Google Pay" : "Kapıda Ödeme",
+        timestamp: DateTime.now(),
+        status: OrderStatus.received,
+      );
+
+      // Sadakat damgası (Sadece geçerli siparişte 1 kez artar)
+      _loyaltyStamps++;
+      if (_loyaltyStamps >= 10) {
+        _loyaltyStamps = 0;
+        _freeProducts++;
+      }
+
+      _cart.clear();
+      _activeOrderId = tempOrderId;
+      _activeOrderStatus = OrderStatus.received;
+      _orderStatusMessage = _getStatusMessage(OrderStatus.received);
+      notifyListeners();
+
+      // Veritabanına kaydet
+      final createdOrder = await _databaseService.createOrder(
+        order: order,
+        companyId: companyId,
+        userId: userId,
+        deliveryLocationId: _selectedLocation.id,
+      );
+
+      if (createdOrder != null) {
+        _activeOrderId = createdOrder.id;
+        final exists = _incomingOrders.any((o) => o.id == createdOrder.id);
+        if (!exists) {
+          _incomingOrders.insert(0, createdOrder);
+        }
+      }
+
+      // Socket yayını
+      _socketService.emit('new_order', {
+        'orderId': createdOrder?.id ?? tempOrderId,
+        'items': orderItems,
+        'status': 'received',
+        'paymentMethod': _selectedPaymentMethod == PaymentMethod.googlePay ? "Google Pay" : "Kapıda Ödeme",
+        'customerName': _currentUser?.name ?? "Misafir",
+        'locationName': _selectedLocation.name,
+        'totalPrice': orderTotal,
+      });
+
+      _startOrderTracking();
+      notifyListeners();
+    } finally {
+      _isCheckingOut = false;
     }
-
-    // Socket yayını
-    _socketService.emit('new_order', {
-      'orderId': createdOrder?.id ?? tempOrderId,
-      'items': orderItems,
-      'status': 'received',
-      'paymentMethod': _selectedPaymentMethod == PaymentMethod.googlePay ? "Google Pay" : "Kapıda Ödeme",
-      'customerName': _currentUser?.name ?? "Misafir",
-      'locationName': _selectedLocation.name,
-      'totalPrice': orderTotal,
-    });
-
-    _startOrderTracking();
-    notifyListeners();
   }
 
   void _startOrderTracking() {
