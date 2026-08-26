@@ -394,9 +394,31 @@ class AuthService with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return true;
+    } on PostgrestException catch (e) {
+      debugPrint("registerNewCompanyWithAdmin PostgrestException: ${e.message} - ${e.details}");
+      if (e.message.contains('row-level security') || e.code == '42501') {
+        _errorMessage = "Supabase 'companies' tablosunda RLS (Row Level Security) izni gerekiyor. Anonim ekleme izni tanımlanmalı.\nDetay: ${e.message}";
+      } else if (e.message.contains('duplicate key') || e.code == '23505') {
+        _errorMessage = "Bu firma kodu ($companyCode) zaten sistemde kayıtlı. Lütfen farklı bir kod girin.";
+      } else {
+        _errorMessage = "Veritabanı Hatası: ${e.message}";
+      }
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } on AuthException catch (e) {
+      debugPrint("registerNewCompanyWithAdmin AuthException: ${e.message}");
+      if (e.message.toLowerCase().contains('already registered') || e.statusCode == '422') {
+        _errorMessage = "Bu yetkili e-postası ($adminEmail) ile kayıtlı bir hesap zaten var. Lütfen farklı bir e-posta kullanın veya giriş yapın.";
+      } else {
+        _errorMessage = "Kullanıcı Kayıt Hatası: ${e.message}";
+      }
+      _isLoading = false;
+      notifyListeners();
+      return false;
     } catch (e) {
       debugPrint("registerNewCompanyWithAdmin hatası: $e");
-      _errorMessage = e.toString();
+      _errorMessage = "İşlem Başarısız: $e";
       _isLoading = false;
       notifyListeners();
       return false;

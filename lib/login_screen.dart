@@ -38,12 +38,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showError(String message) {
     if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red.shade700,
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.red.shade800,
+        duration: const Duration(seconds: 8),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        action: SnackBarAction(
+          label: "TAMAM",
+          textColor: Colors.white,
+          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        ),
       ),
     );
   }
@@ -611,9 +618,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                                 setSheetState(() => isSubmitting = false);
 
-                                if (ctx.mounted) Navigator.pop(ctx);
-
                                 if (success) {
+                                  if (ctx.mounted) Navigator.pop(ctx);
+
                                   final auth = AuthService();
                                   final companyId = auth.currentCompany?.id ?? auth.currentUser?.companyId;
                                   if (companyId != null && mounted) {
@@ -628,7 +635,33 @@ class _LoginScreenState extends State<LoginScreen> {
                                     );
                                   }
                                 } else {
-                                  _showError(AuthService().errorMessage ?? "İşletme kaydı oluşturulamadı.");
+                                  final err = AuthService().errorMessage ?? "İşletme kaydı oluşturulamadı.";
+                                  if (ctx.mounted) {
+                                    showDialog(
+                                      context: ctx,
+                                      builder: (errCtx) => AlertDialog(
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        title: Row(
+                                          children: const [
+                                            Icon(Icons.error_outline, color: Colors.red),
+                                            SizedBox(width: 8),
+                                            Text("Kayıt Başarısız", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                        content: Text(
+                                          err,
+                                          style: const TextStyle(fontSize: 14, height: 1.4),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(errCtx),
+                                            child: const Text("TAMAM", style: TextStyle(fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+                                  _showError(err);
                                 }
                               },
                         style: ElevatedButton.styleFrom(
@@ -799,7 +832,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 22,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
                         )
-                      : const Icon(Icons.g_mobiledata, size: 34, color: Colors.blue),
+                      : const GoogleLogo(size: 24),
                   label: Text(
                     _activeTab == 0 ? "Google ile Giriş Yap" : "Google ile Kayıt Ol",
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
@@ -969,4 +1002,76 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+}
+
+class GoogleLogo extends StatelessWidget {
+  final double size;
+  const GoogleLogo({super.key, this.size = 24});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/768px-Google_%22G%22_logo.svg.png',
+      width: size,
+      height: size,
+      errorBuilder: (context, error, stackTrace) => CustomPaint(
+        size: Size(size, size),
+        painter: _GoogleLogoPainter(),
+      ),
+    );
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double w = size.width;
+    final double h = size.height;
+    final center = Offset(w / 2, h / 2);
+    final radius = w / 2;
+    final strokeWidth = w * 0.20;
+
+    final redPaint = Paint()
+      ..color = const Color(0xFFEA4335)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    final yellowPaint = Paint()
+      ..color = const Color(0xFFFBBC05)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    final greenPaint = Paint()
+      ..color = const Color(0xFF34A853)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    final bluePaint = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    final rect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
+
+    // Top arc (Red)
+    canvas.drawArc(rect, -3.14159 * 0.75, 3.14159 * 0.55, false, redPaint);
+    // Right arc (Blue)
+    canvas.drawArc(rect, -3.14159 * 0.20, 3.14159 * 0.35, false, bluePaint);
+    // Bottom arc (Green)
+    canvas.drawArc(rect, 3.14159 * 0.15, 3.14159 * 0.55, false, greenPaint);
+    // Left arc (Yellow)
+    canvas.drawArc(rect, 3.14159 * 0.70, 3.14159 * 0.55, false, yellowPaint);
+
+    // Horizontal blue bar
+    final barPaint = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(
+      Rect.fromLTWH(center.dx - strokeWidth * 0.1, center.dy - strokeWidth / 2, radius * 0.95, strokeWidth),
+      barPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
